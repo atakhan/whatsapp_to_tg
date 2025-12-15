@@ -20,6 +20,7 @@ whatsapp_to_tg/
 │   │   └── main.py       # Точка входа FastAPI
 │   ├── sessions/         # Telegram сессии
 │   ├── tmp/              # Временные файлы
+│   ├── Dockerfile        # Docker образ для backend
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
@@ -27,13 +28,46 @@ whatsapp_to_tg/
 │   │   ├── components/   # Компоненты
 │   │   ├── store/        # Pinia store
 │   │   └── router/       # Vue Router
+│   ├── Dockerfile        # Docker образ для frontend
 │   └── package.json
+├── docker-compose.yml    # Docker Compose конфигурация
 └── README.md
 ```
 
 ## Установка
 
-### Backend
+### Docker (Рекомендуется)
+
+1. Убедитесь, что у вас установлены Docker и Docker Compose
+
+2. Создайте файл `.env` в корне проекта:
+```env
+TELEGRAM_API_ID=your_api_id
+TELEGRAM_API_HASH=your_api_hash
+TELEGRAM_BOT_TOKEN=your_bot_token_optional
+SECRET_KEY=your-secret-key-change-in-production
+```
+
+3. Запустите проект:
+```bash
+docker-compose up -d
+```
+
+4. Приложение будет доступно по адресу `http://localhost:5173`
+
+5. Для остановки:
+```bash
+docker-compose down
+```
+
+6. Для просмотра логов:
+```bash
+docker-compose logs -f
+```
+
+### Локальная установка
+
+#### Backend
 
 1. Создайте виртуальное окружение:
 ```bash
