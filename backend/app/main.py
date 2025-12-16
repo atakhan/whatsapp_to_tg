@@ -6,8 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
-from app.api import upload, parse, auth, telegram, migrate
+from app.api import upload, parse, auth, telegram, migrate, whatsapp
 from app.core.config import settings
+from app.services.whatsapp_connect import whatsapp_service
 
 app = FastAPI(
     title="WhatsApp to Telegram Migrator",
@@ -30,10 +31,18 @@ app.include_router(parse.router, prefix="/api", tags=["parse"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(migrate.router, prefix="/api/migrate", tags=["migrate"])
+app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["whatsapp"])
 
 # Create necessary directories
 os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
 os.makedirs(settings.TMP_DIR, exist_ok=True)
+os.makedirs(settings.WHATSAPP_SESSIONS_DIR, exist_ok=True)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown"""
+    await whatsapp_service.shutdown()
 
 
 @app.get("/")
