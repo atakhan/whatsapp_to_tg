@@ -83,6 +83,11 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
+3. Установите браузеры для Playwright (требуется для WhatsApp Web):
+```bash
+playwright install chromium
+```
+
 3. Создайте файл `.env` в папке `backend/`:
 ```env
 TELEGRAM_API_ID=your_api_id
@@ -92,7 +97,12 @@ SECRET_KEY=your-secret-key-change-in-production
 CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
 ```
 
-4. Запустите сервер:
+4. Установите браузеры для Playwright (требуется для WhatsApp Web):
+```bash
+playwright install chromium
+```
+
+5. Запустите сервер:
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
@@ -123,10 +133,18 @@ npm run dev
 
 1. Откройте приложение в браузере
 2. Нажмите "Начать перенос"
-3. Загрузите ZIP файл с экспортом WhatsApp
-4. Авторизуйтесь в Telegram
-5. Выберите чат для переноса
-6. Дождитесь завершения миграции
+3. Подключите WhatsApp Web (отсканируйте QR-код)
+4. Выберите чаты для переноса
+5. Авторизуйтесь в Telegram
+6. Сопоставьте чаты WhatsApp с Telegram
+7. Дождитесь завершения миграции
+
+## WhatsApp Web подключение
+
+Приложение использует Playwright для автоматизации WhatsApp Web:
+- QR-код генерируется автоматически при запросе `/api/whatsapp/connect`
+- Статус подключения можно отслеживать через `/api/whatsapp/status/{session_id}`
+- Сессии сохраняются в `sessions/whatsapp/` для повторного использования
 
 ## Особенности
 
