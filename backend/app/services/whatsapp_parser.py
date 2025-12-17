@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class WhatsAppParser:
@@ -77,7 +80,14 @@ class WhatsAppParser:
                     if msg:
                         messages.append(msg)
                 except Exception as e:
-                    print(f"Error parsing message: {e}")
+                    logger.warning(
+                        "Error parsing message",
+                        extra={
+                            "error_code": "WHATSAPP_PARSE_MESSAGE_FAIL",
+                            "extra_data": {"pattern": pattern},
+                        },
+                        exc_info=True,
+                    )
                     continue
         
         # Sort by timestamp
@@ -115,7 +125,14 @@ class WhatsAppParser:
             
             timestamp = int(dt.timestamp())
         except (ValueError, IndexError) as e:
-            print(f"Error parsing timestamp: {e}")
+            logger.warning(
+                "Error parsing timestamp",
+                extra={
+                    "error_code": "WHATSAPP_PARSE_TIMESTAMP_FAIL",
+                    "extra_data": {"raw_groups": groups},
+                },
+                exc_info=True,
+            )
             return None
         
         # Detect media
@@ -160,7 +177,14 @@ class WhatsAppParser:
                 if msg:
                     messages.append(msg)
             except Exception as e:
-                print(f"Error parsing JSON message: {e}")
+                logger.warning(
+                    "Error parsing JSON message",
+                    extra={
+                        "error_code": "WHATSAPP_PARSE_JSON_MESSAGE_FAIL",
+                        "extra_data": {"keys": list(msg_data.keys())},
+                    },
+                    exc_info=True,
+                )
                 continue
         
         # Sort by timestamp

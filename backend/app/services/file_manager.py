@@ -7,6 +7,9 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class FileManager:
@@ -51,7 +54,14 @@ class FileManager:
                 shutil.rmtree(session_path)
             return True
         except Exception as e:
-            print(f"Error cleaning up session {session_id}: {e}")
+            logger.error(
+                "Failed to cleanup session dir",
+                extra={
+                    "error_code": "SESSION_CLEANUP_FAIL",
+                    "extra_data": {"session_id": session_id, "path": str(session_path)},
+                },
+                exc_info=True,
+            )
             return False
     
     def get_telegram_session_path(self, user_id: int) -> Path:

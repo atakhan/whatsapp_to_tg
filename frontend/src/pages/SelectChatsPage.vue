@@ -4,7 +4,15 @@
       <h2>Выбор чатов</h2>
       <p class="description">Выберите чаты для переноса:</p>
       
-      <div class="chats-list" v-if="store.whatsappChats.length > 0">
+      <div v-if="loading" class="empty-state">
+        <p>Загрузка чатов...</p>
+      </div>
+
+      <div v-else-if="error" class="error-message">
+        {{ error }}
+      </div>
+
+      <div v-else-if="store.whatsappChats.length > 0" class="chats-list">
         <div 
           v-for="chat in store.whatsappChats" 
           :key="chat.id"
@@ -19,7 +27,7 @@
             <div class="chat-name">{{ chat.name }}</div>
             <div class="chat-meta">
               <span class="chat-type">{{ chat.type === 'personal' ? 'Личный' : 'Группа' }}</span>
-              <span class="chat-count">{{ chat.messageCount }} сообщений</span>
+              <span class="chat-count">{{ chat.messageCount || 0 }} сообщений</span>
             </div>
           </div>
           <div class="chat-checkbox">
@@ -33,7 +41,7 @@
       </div>
       
       <div v-else class="empty-state">
-        <p>Загрузка чатов...</p>
+        <p>Чаты не найдены</p>
       </div>
 
       <div class="nav-buttons">
@@ -51,10 +59,41 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { store } from '../store'
+import api from '../api/client'
 
 const router = useRouter()
+const loading = ref(false)
+const error = ref<string | null>(null)
+
+async function loadChats() {
+  if (!store.whatsappSessionId) {
+    error.value = 'Сессия WhatsApp не найдена'
+    return
+  }
+
+  loading.value = true
+  error.value = null
+
+  try {
+    const response = await api.get(`/whatsapp/chats/${store.whatsappSessionId}`)
+    // Transform API response to match store interface
+    const chats = response.data.chats.map((chat: any) => ({
+      id: chat.id,
+      name: chat.name,
+      type: chat.type,
+      messageCount: chat.message_count || 0,
+      avatar: chat.avatar,
+    }))
+    store.setWhatsAppChats(chats)
+  } catch (e: any) {
+    error.value = e?.response?.data?.detail || 'Ошибка загрузки чатов'
+  } finally {
+    loading.value = false
+  }
+}
 
 function isSelected(chatId: string): boolean {
   return store.selectedWhatsAppChats.includes(chatId)
@@ -78,6 +117,12 @@ function handleNext() {
     router.push('/telegram')
   }
 }
+
+onMounted(() => {
+  if (store.whatsappChats.length === 0) {
+    loadChats()
+  }
+})
 </script>
 
 <style scoped>
@@ -150,6 +195,14 @@ function handleNext() {
   text-align: center;
   padding: var(--spacing-lg);
   color: var(--text-secondary);
+}
+
+.error-message {
+  color: var(--error-color, #e74c3c);
+  padding: var(--spacing-md);
+  background: rgba(231, 76, 60, 0.1);
+  border-radius: var(--border-radius);
+  margin-bottom: var(--spacing-md);
 }
 </style>
 

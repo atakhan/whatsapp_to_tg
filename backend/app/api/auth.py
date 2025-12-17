@@ -4,6 +4,7 @@ Authentication API endpoints
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict
+import logging
 from app.core.security import verify_telegram_auth, extract_user_id
 from app.services.telegram_client import TelegramClientWrapper
 from app.services.file_manager import FileManager
@@ -14,6 +15,7 @@ import asyncio
 
 router = APIRouter()
 file_manager = FileManager(settings.TMP_DIR, settings.SESSIONS_DIR)
+logger = logging.getLogger(__name__)
 
 
 class TelegramAuthRequest(BaseModel):
@@ -82,15 +84,17 @@ async def telegram_phone_auth(request: Dict):
     """
     Handle phone number authentication for Telegram
     This endpoint initiates phone auth flow
+    Uses session_id instead of user_id (user_id will be obtained after auth)
     """
     try:
-        user_id = request.get("user_id")
+        session_id = request.get("session_id")
         phone = request.get("phone")
         
-        if not user_id or not phone:
-            raise HTTPException(status_code=400, detail="user_id and phone required")
+        if not session_id or not phone:
+            raise HTTPException(status_code=400, detail="session_id and phone required")
         
-        session_path = file_manager.get_telegram_session_path(user_id)
+        # Use session_id for session file path
+        session_path = file_manager.sessions_dir / f"tg_{session_id}.session"
         
         # Create client
         client = TelegramClient(
@@ -106,7 +110,8 @@ async def telegram_phone_auth(request: Dict):
         
         return {
             "phone_code_hash": sent_code.phone_code_hash,
-            "user_id": user_id
+            "session_id": session_id,
+            "phone": phone
         }
     
     except Exception as e:
@@ -119,15 +124,16 @@ async def telegram_verify_code(request: Dict):
     Verify phone code and complete authentication
     """
     try:
-        user_id = request.get("user_id")
+        session_id = request.get("session_id")
         phone = request.get("phone")
         code = request.get("code")
         phone_code_hash = request.get("phone_code_hash")
+        password = request.get("password")  # For 2FA
         
-        if not all([user_id, phone, code, phone_code_hash]):
+        if not all([session_id, phone, code, phone_code_hash]):
             raise HTTPException(status_code=400, detail="Missing required fields")
         
-        session_path = file_manager.get_telegram_session_path(user_id)
+        session_path = file_manager.sessions_dir / f"tg_{session_id}.session"
         
         client = TelegramClient(
             str(session_path),
@@ -142,17 +148,47 @@ async def telegram_verify_code(request: Dict):
             await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
         except SessionPasswordNeededError:
             # 2FA password required
-            await client.disconnect()
-            raise HTTPException(
-                status_code=400,
-                detail="2FA password required. Please provide password."
-            )
+            if not password:
+                await client.disconnect()
+                raise HTTPException(
+                    status_code=400,
+                    detail="2FA password required. Please provide password."
+                )
+            # Sign in with password
+            await client.sign_in(password=password)
         
         user_info = await client.get_me()
-        await client.disconnect()
+        user_id = user_info.id
+        
+        # Rename session file to use user_id for consistency
+        new_session_path = file_manager.get_telegram_session_path(user_id)
+        if str(session_path) != str(new_session_path) and session_path.exists():
+            try:
+                # Close client before renaming
+                await client.disconnect()
+                # Rename session file
+                import shutil
+                shutil.move(str(session_path), str(new_session_path))
+            except Exception as e:
+                # If rename fails, it's okay - session is still valid
+                logger.warning(
+                    "Failed to rename Telegram session file",
+                    extra={
+                        "error_code": "TELEGRAM_SESSION_RENAME_FAIL",
+                        "extra_data": {
+                            "old_path": str(session_path),
+                            "new_path": str(new_session_path),
+                            "error": str(e)
+                        },
+                    },
+                )
+                await client.disconnect()
+        else:
+            await client.disconnect()
         
         return {
             "user_id": user_id,
+            "session_id": session_id,
             "authenticated": True,
             "user_info": {
                 "id": user_info.id,
@@ -163,5 +199,7 @@ async def telegram_verify_code(request: Dict):
             }
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error verifying code: {str(e)}")

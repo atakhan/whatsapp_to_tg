@@ -30,11 +30,13 @@ export interface MigrationProgress {
 export const store = reactive({
   // WhatsApp session
   whatsappSessionActive: false,
+  whatsappSessionId: null as string | null,
   whatsappChats: [] as WhatsAppChat[],
   selectedWhatsAppChats: [] as string[],
 
   // Telegram session
   telegramSessionActive: false,
+  telegramUserId: null as number | null,
   telegramChats: [] as TelegramChat[],
 
   // Chat mappings
@@ -74,11 +76,27 @@ export const store = reactive({
     this.migrationReport = report
   },
 
+  setWhatsAppSessionId(sessionId: string | null) {
+    this.whatsappSessionId = sessionId
+    // Also save to localStorage for persistence across page reloads
+    if (sessionId) {
+      localStorage.setItem('whatsapp_session_id', sessionId)
+    } else {
+      localStorage.removeItem('whatsapp_session_id')
+    }
+  },
+
+  setTelegramUserId(userId: number | null) {
+    this.telegramUserId = userId
+  },
+
   reset() {
     this.whatsappSessionActive = false
+    this.whatsappSessionId = null
     this.whatsappChats = []
     this.selectedWhatsAppChats = []
     this.telegramSessionActive = false
+    this.telegramUserId = null
     this.telegramChats = []
     this.chatMappings = []
     this.migrationProgress = null

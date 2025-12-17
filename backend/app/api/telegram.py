@@ -20,6 +20,7 @@ async def get_contacts(request: GetContactsRequest):
     """
     Get list of Telegram contacts/chats
     """
+    client_wrapper = None
     try:
         session_path = file_manager.get_telegram_session_path(request.user_id)
         
@@ -27,13 +28,12 @@ async def get_contacts(request: GetContactsRequest):
             raise HTTPException(status_code=404, detail="Telegram session not found")
         
         client_wrapper = TelegramClientWrapper(request.user_id, session_path)
-        connected = await client_wrapper.connect()
+        connected = await client_wrapper.connect(retries=3, retry_delay=2.0)
         
         if not connected:
             raise HTTPException(status_code=401, detail="Could not connect to Telegram")
         
         dialogs = await client_wrapper.get_dialogs()
-        await client_wrapper.disconnect()
         
         return {
             "contacts": dialogs,
@@ -44,3 +44,10 @@ async def get_contacts(request: GetContactsRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting contacts: {str(e)}")
+    finally:
+        # Always disconnect, even on error
+        if client_wrapper:
+            try:
+                await client_wrapper.disconnect()
+            except Exception:
+                pass

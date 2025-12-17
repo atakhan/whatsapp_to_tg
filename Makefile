@@ -1,49 +1,54 @@
-.PHONY: run front back help install-back playwright-install setup-env
+.PHONY: help run front back build stop logs clean setup-env
+
+COMPOSE ?= docker compose
+ENV_FILE ?= backend/.env
+ENV_EXAMPLE ?= env.example
 
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make run      - Run both frontend and backend servers"
-	@echo "  make front    - Run frontend development server only"
-	@echo "  make back     - Setup and run backend server only"
-	@echo "  make install-back - Install backend dependencies and Playwright"
+	@echo "  make run    - Build and start backend+frontend (docker compose up)"
+	@echo "  make front  - Start frontend service (and dependencies) in Docker"
+	@echo "  make back   - Start backend service in Docker"
+	@echo "  make build  - Build Docker images"
+	@echo "  make stop   - Stop containers"
+	@echo "  make logs   - Tail combined logs"
+	@echo "  make clean  - Stop containers and remove volumes"
 
-# Run frontend development server
-front:
-	@echo "Starting frontend development server..."
-	cd frontend && npm run dev
-
-# Run both frontend and backend
-run: install-back setup-env
-	@echo "Starting backend and frontend servers..."
-	@echo "Starting backend on http://localhost:8000..."
-	@cd backend && start /B python -m uvicorn app.main:app --reload --port 8000
-	@timeout /t 2 /nobreak >nul 2>&1 || sleep 2
-	@echo "Starting frontend on http://localhost:5173..."
-	@echo "Both servers are running. Press Ctrl+C to stop."
-	@cd frontend && npm run dev
-
-# Setup and run backend
-back: install-back setup-env
-	@echo "Starting backend server..."
-	cd backend && python -m uvicorn app.main:app --reload --port 8000
-
-# Setup .env file from example if it doesn't exist
+# Ensure backend/.env exists
 setup-env:
-	@if not exist backend\.env ( \
-		echo Creating backend/.env from env.example... && \
-		copy env.example backend\.env && \
-		echo Please edit backend/.env and add your TELEGRAM_API_ID and TELEGRAM_API_HASH \
-	) else ( \
-		echo backend/.env already exists \
-	)
+	@if [ ! -f $(ENV_FILE) ]; then \
+		echo "Creating $(ENV_FILE) from $(ENV_EXAMPLE)..."; \
+		cp $(ENV_EXAMPLE) $(ENV_FILE); \
+		echo "Edit $(ENV_FILE) to set TELEGRAM_API_ID and TELEGRAM_API_HASH."; \
+	else \
+		echo "$(ENV_FILE) already exists."; \
+	fi
 
-# Install backend dependencies and Playwright browsers
-install-back:
-	@echo "Upgrading pip..."
-	cd backend && python -m pip install --upgrade pip
-	@echo "Installing backend dependencies..."
-	cd backend && pip install -r requirements.txt
-	@echo "Installing Playwright browsers..."
-	cd backend && python -m playwright install chromium
-	@echo "Backend setup complete!"
+# Build and run everything
+run: setup-env
+	$(COMPOSE) up --build
+
+# Run only frontend service (will start backend if needed)
+front: setup-env
+	$(COMPOSE) up --build frontend
+
+# Run only backend service
+back: setup-env
+	$(COMPOSE) up --build backend
+
+# Build images without running
+build: setup-env
+	$(COMPOSE) build
+
+# Stop containers (keeps volumes)
+stop:
+	$(COMPOSE) down
+
+# Tail logs
+logs:
+	$(COMPOSE) logs -f
+
+# Stop and remove containers and named volumes
+clean:
+	$(COMPOSE) down -v

@@ -8,7 +8,14 @@ import os
 
 from app.api import upload, parse, auth, telegram, migrate, whatsapp
 from app.core.config import settings
+from app.core.logging_setup import configure_logging, request_logging_middleware
 from app.services.whatsapp_connect import whatsapp_service
+
+configure_logging(
+    service_name=settings.SERVICE_NAME,
+    env=settings.ENV,
+    level=os.getenv("LOG_LEVEL", "INFO"),
+)
 
 app = FastAPI(
     title="WhatsApp to Telegram Migrator",
@@ -32,6 +39,9 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(migrate.router, prefix="/api/migrate", tags=["migrate"])
 app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["whatsapp"])
+
+# Attach request logging middleware
+app.middleware("http")(request_logging_middleware)
 
 # Create necessary directories
 os.makedirs(settings.SESSIONS_DIR, exist_ok=True)

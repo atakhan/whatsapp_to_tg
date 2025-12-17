@@ -9,6 +9,10 @@ import sys
 
 
 class Settings(BaseSettings):
+    # Service info
+    SERVICE_NAME: str = "whatsapp-to-tg-api"
+    ENV: str = "dev"
+
     # Telegram API credentials
     TELEGRAM_API_ID: int = 0
     TELEGRAM_API_HASH: str = ""
