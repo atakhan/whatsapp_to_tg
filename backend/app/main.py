@@ -5,11 +5,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+import logging
 
 from app.api import upload, parse, auth, telegram, migrate, whatsapp
 from app.core.config import settings
 from app.core.logging_setup import configure_logging, request_logging_middleware
-from app.services.whatsapp_connect import whatsapp_service
+from app.services.whatsapp import whatsapp_service
+
+logger = logging.getLogger(__name__)
 
 configure_logging(
     service_name=settings.SERVICE_NAME,
@@ -47,6 +50,18 @@ app.middleware("http")(request_logging_middleware)
 os.makedirs(settings.SESSIONS_DIR, exist_ok=True)
 os.makedirs(settings.TMP_DIR, exist_ok=True)
 os.makedirs(settings.WHATSAPP_SESSIONS_DIR, exist_ok=True)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Cleanup old sessions on application startup"""
+    try:
+        # Cleanup sessions older than 7 days and keep max 100 most recent
+        result = whatsapp_service.cleanup_old_sessions(max_age_days=7, max_sessions=100)
+        if result["deleted"] > 0:
+            logger.info("Cleaned up %d old sessions on startup (kept %d)", result["deleted"], result["kept"])
+    except Exception as e:
+        logger.warning("Error cleaning up old sessions on startup: %s", str(e))
 
 
 @app.on_event("shutdown")

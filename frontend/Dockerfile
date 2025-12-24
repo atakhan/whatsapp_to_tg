@@ -15,4 +15,5 @@ COPY . .
 EXPOSE 5173
 
 # Install deps at runtime (for bind-mount dev workflow) and start Vite
-CMD ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0"]
+# Check if dependencies are installed, install only if needed with retry logic for ENOTEMPTY errors
+CMD ["sh", "-c", "if [ ! -d node_modules/vue ]; then for i in 1 2 3; do npm install && break || (echo 'Install attempt $i failed, retrying...' && sleep 2); done; fi && npm run dev -- --host 0.0.0.0"]

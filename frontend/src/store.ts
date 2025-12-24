@@ -88,6 +88,30 @@ export const store = reactive({
 
   setTelegramUserId(userId: number | null) {
     this.telegramUserId = userId
+    // Also save to localStorage for persistence across page reloads
+    if (userId) {
+      localStorage.setItem('telegram_user_id', userId.toString())
+    } else {
+      localStorage.removeItem('telegram_user_id')
+    }
+  },
+
+  // Restore sessions from localStorage on initialization
+  restoreSessions() {
+    // Restore WhatsApp session
+    const savedWhatsAppSessionId = localStorage.getItem('whatsapp_session_id')
+    if (savedWhatsAppSessionId) {
+      this.whatsappSessionId = savedWhatsAppSessionId
+    }
+
+    // Restore Telegram user ID
+    const savedTelegramUserId = localStorage.getItem('telegram_user_id')
+    if (savedTelegramUserId) {
+      const userId = parseInt(savedTelegramUserId, 10)
+      if (!isNaN(userId)) {
+        this.telegramUserId = userId
+      }
+    }
   },
 
   reset() {
@@ -102,6 +126,12 @@ export const store = reactive({
     this.migrationProgress = null
     this.migrationComplete = false
     this.migrationReport = null
+    // Also clear localStorage
+    localStorage.removeItem('whatsapp_session_id')
+    localStorage.removeItem('telegram_user_id')
   }
 })
+
+// Restore sessions on store initialization
+store.restoreSessions()
 

@@ -1,4 +1,4 @@
-.PHONY: help run front back build stop logs clean setup-env
+.PHONY: help run front back back-restart build stop logs clean setup-env
 
 COMPOSE ?= docker compose
 ENV_FILE ?= backend/.env
@@ -7,13 +7,14 @@ ENV_EXAMPLE ?= env.example
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make run    - Build and start backend+frontend (docker compose up)"
-	@echo "  make front  - Start frontend service (and dependencies) in Docker"
-	@echo "  make back   - Start backend service in Docker"
-	@echo "  make build  - Build Docker images"
-	@echo "  make stop   - Stop containers"
-	@echo "  make logs   - Tail combined logs"
-	@echo "  make clean  - Stop containers and remove volumes"
+	@echo "  make run          - Build and start backend+frontend in detached mode (docker compose up -d)"
+	@echo "  make front        - Start frontend service (and dependencies) in Docker"
+	@echo "  make back         - Start backend service in Docker"
+	@echo "  make back-restart - Restart backend service (useful after code changes)"
+	@echo "  make build        - Build Docker images"
+	@echo "  make stop         - Stop containers"
+	@echo "  make logs         - Tail combined logs"
+	@echo "  make clean        - Stop containers and remove volumes"
 
 # Ensure backend/.env exists
 setup-env:
@@ -25,9 +26,9 @@ setup-env:
 		echo "$(ENV_FILE) already exists."; \
 	fi
 
-# Build and run everything
+# Build and run everything in detached mode
 run: setup-env
-	$(COMPOSE) up --build
+	$(COMPOSE) up --build -d
 
 # Run only frontend service (will start backend if needed)
 front: setup-env
@@ -36,6 +37,10 @@ front: setup-env
 # Run only backend service
 back: setup-env
 	$(COMPOSE) up --build backend
+
+# Restart backend service (useful after code changes)
+back-restart:
+	$(COMPOSE) restart backend
 
 # Build images without running
 build: setup-env

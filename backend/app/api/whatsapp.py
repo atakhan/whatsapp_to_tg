@@ -2,14 +2,17 @@
 WhatsApp Web API endpoints
 """
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 import logging
+import json
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
 from app.services.whatsapp_client import WhatsAppClient, WhatsAppConnectionStatus
+from app.services.whatsapp import whatsapp_service
 
 
 router = APIRouter()
@@ -151,7 +154,7 @@ WhatsApp Web connection API endpoints
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from app.services.whatsapp_connect import whatsapp_service
+from app.services.whatsapp import whatsapp_service
 from app.services.file_manager import FileManager
 from app.core.config import settings
 
@@ -239,6 +242,45 @@ async def get_connection_status(session_id: str):
         raise HTTPException(status_code=500, detail=f"Error getting status: {str(e)}")
 
 
+@router.get("/chats/{session_id}/stream")
+async def stream_whatsapp_chats(session_id: str):
+    """
+    Stream WhatsApp chats as they are loaded (Server-Sent Events)
+    
+    Requires session to be in 'ready' status
+    """
+    async def event_generator():
+        try:
+            # Check if session is connected
+            if not whatsapp_service.is_connected(session_id):
+                yield f"data: {json.dumps({'error': 'WhatsApp Web is not connected'})}\n\n"
+                return
+            
+            # Send initial event
+            yield f"data: {json.dumps({'type': 'start', 'message': 'Loading chats...'})}\n\n"
+            
+            # Stream chats as they are parsed
+            async for chat_batch in whatsapp_service.get_chats_streaming(session_id):
+                if chat_batch:
+                    yield f"data: {json.dumps({'type': 'chats', 'chats': chat_batch})}\n\n"
+            
+            # Send completion event
+            yield f"data: {json.dumps({'type': 'complete', 'message': 'All chats loaded'})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error streaming chats for session {session_id}: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
 @router.get("/chats/{session_id}", response_model=ChatsResponse)
 async def get_whatsapp_chats(session_id: str):
     """
@@ -261,6 +303,40 @@ async def get_whatsapp_chats(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting chats: {str(e)}")
 
+
+@router.get("/messages/{session_id}/{chat_id}/stream")
+async def stream_whatsapp_messages(session_id: str, chat_id: str, limit: Optional[int] = None, chat_name: Optional[str] = None):
+    """
+    Stream WhatsApp messages as they are loaded (Server-Sent Events)
+    
+    Optional query parameters:
+    - limit: maximum number of messages to load
+    - chat_name: real name of the chat (for more reliable chat opening)
+    """
+    async def event_generator():
+        try:
+            # Check if session is connected
+            if not whatsapp_service.is_connected(session_id):
+                yield f"data: {json.dumps({'type': 'error', 'error': 'WhatsApp Web is not connected'})}\n\n"
+                return
+            
+            # Stream messages as they are parsed
+            async for event in whatsapp_service.get_chat_messages_streaming(session_id, chat_id, limit, chat_name):
+                yield f"data: {json.dumps(event)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error streaming messages for session {session_id}, chat {chat_id}: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @router.get("/messages/{session_id}/{chat_id}")
 async def get_whatsapp_messages(session_id: str, chat_id: str):
@@ -347,3 +423,25 @@ async def cleanup_session(session_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cleaning up session: {str(e)}")
+
+
+@router.post("/sessions/cleanup")
+async def cleanup_old_sessions(max_age_days: int = 7, max_sessions: Optional[int] = 100):
+    """
+    Cleanup old WhatsApp sessions from disk
+    
+    Query parameters:
+        max_age_days: Delete sessions older than this many days (default: 7)
+        max_sessions: Keep only the N most recent sessions (default: 100, None = no limit)
+    """
+    try:
+        result = whatsapp_service.cleanup_old_sessions(max_age_days=max_age_days, max_sessions=max_sessions)
+        return {
+            "deleted": result["deleted"],
+            "kept": result["kept"],
+            "total_before": result["total_before"],
+            "message": f"Cleaned up {result['deleted']} old sessions, kept {result['kept']}"
+        }
+    except Exception as e:
+        logger.error("Error cleaning up old sessions: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error cleaning up old sessions: {str(e)}")

@@ -53,18 +53,18 @@ class TelegramClientWrapper:
                         },
                     )
                     
-            self.client = TelegramClient(
-                str(self.session_path),
-                settings.TELEGRAM_API_ID,
-                settings.TELEGRAM_API_HASH
-            )
-            await self.client.connect()
-            
-            if not await self.client.is_user_authorized():
+                    self.client = TelegramClient(
+                        str(self.session_path),
+                        settings.TELEGRAM_API_ID,
+                        settings.TELEGRAM_API_HASH
+                    )
+                    await self.client.connect()
+                    
+                    if not await self.client.is_user_authorized():
                         await self.client.disconnect()
                         self.client = None
-                return False
-            
+                        return False
+                    
                     # Verify connection is stable
                     if not self.client.is_connected():
                         logger.error(
@@ -88,9 +88,9 @@ class TelegramClientWrapper:
                             },
                         },
                     )
-            return True
+                    return True
                     
-        except Exception as e:
+            except Exception as e:
                 error_msg = str(e)
                 is_locked = "locked" in error_msg.lower() or "database is locked" in error_msg.lower()
                 
@@ -137,7 +137,7 @@ class TelegramClientWrapper:
                     )
                     return False
         
-            return False
+        return False
     
     async def disconnect(self):
         """Disconnect from Telegram"""
@@ -147,7 +147,7 @@ class TelegramClientWrapper:
                 lock_to_use = self._lock if self._lock else await get_session_lock(self.user_id)
                 async with lock_to_use:
                     try:
-            await self.client.disconnect()
+                        await self.client.disconnect()
                     except Exception as disconnect_error:
                         logger.warning(
                             "Error during Telegram disconnect",

@@ -27,7 +27,7 @@ file_manager = FileManager(settings.TMP_DIR, settings.SESSIONS_DIR)
 logger = logging.getLogger(__name__)
 
 # Store active migrations
-active_migrations: dict[str, MigrationManager] = {}
+active_migrations: Dict[str, MigrationManager] = {}
 
 
 async def download_media_file(media_path: str, output_dir: Path, index: int) -> Optional[str]:
@@ -257,9 +257,9 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
         
         if messages_file.exists():
             logger.info("Loading messages from file for session %s", session_id)
-        with open(messages_file, 'r', encoding='utf-8') as f:
-            messages = json.load(f)
-        
+            with open(messages_file, 'r', encoding='utf-8') as f:
+                messages = json.load(f)
+            
             # Download media files if needed (in case they contain URLs)
             messages = await download_media_files(messages, session_path)
         elif whatsapp_chat_id:
@@ -273,7 +273,7 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
             manager._save_status()
             active_migrations[session_id] = manager
             
-            from app.services.whatsapp_connect import whatsapp_service
+            from app.services.whatsapp import whatsapp_service
             messages = await whatsapp_service.get_chat_messages(session_id, whatsapp_chat_id)
             
             logger.info(
@@ -304,9 +304,9 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
         
         # Initialize migration manager (if not already created during WhatsApp Web fetch)
         if session_id not in active_migrations:
-        manager = MigrationManager(session_id, session_path)
-        manager.load_messages(messages)
-        manager.set_target_chat(target_chat_id)
+            manager = MigrationManager(session_id, session_path)
+            manager.load_messages(messages)
+            manager.set_target_chat(target_chat_id)
             active_migrations[session_id] = manager
         else:
             # Manager already exists from WhatsApp Web fetch
@@ -323,7 +323,7 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
         client_connected = False
         
         try:
-        client_wrapper = TelegramClientWrapper(user_id, telegram_session_path)
+            client_wrapper = TelegramClientWrapper(user_id, telegram_session_path)
             logger.info(
                 "Connecting to Telegram for migration",
                 extra={
@@ -333,13 +333,13 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
             )
             
             connected = await client_wrapper.connect(retries=10, retry_delay=3.0)
-        
-        if not connected:
+            
+            if not connected:
                 manager.status["current_action"] = "Ошибка подключения к Telegram"
                 manager.status["errors"].append("Не удалось подключиться к Telegram. Возможно, сессия используется другим процессом.")
                 manager._save_status()
-            raise ValueError("Could not connect to Telegram")
-        
+                raise ValueError("Could not connect to Telegram")
+            
             # Verify client is still connected after connect() returns
             if not client_wrapper.client or not client_wrapper.client.is_connected():
                 logger.error(
@@ -447,8 +447,8 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
             )
             
             manager.set_target_chat(target_chat_id)
-        manager.set_client(client_wrapper)
-        
+            manager.set_client(client_wrapper)
+            
             logger.info(
                 "Starting migration execution",
                 extra={
@@ -462,9 +462,9 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
                 },
             )
         
-        # Run migration
-        await manager.start_migration()
-        
+            # Run migration
+            await manager.start_migration()
+            
         except Exception as e:
             logger.error(
                 "Migration task failed",
@@ -485,7 +485,7 @@ async def run_migration(session_id: str, user_id: int, target_chat_id: int, what
             # Always disconnect client, even on error
             if client_wrapper:
                 try:
-        await client_wrapper.disconnect()
+                    await client_wrapper.disconnect()
                 except Exception as disconnect_error:
                     logger.warning(
                         "Error disconnecting Telegram client after migration",
@@ -537,7 +537,7 @@ async def start_migration(request: StartMigrationRequest, background_tasks: Back
         
         # If using WhatsApp Web, check if session is connected
         if request.whatsapp_chat_id:
-            from app.services.whatsapp_connect import whatsapp_service
+            from app.services.whatsapp import whatsapp_service
             if not whatsapp_service.is_connected(request.session_id):
                 raise HTTPException(
                     status_code=400,
