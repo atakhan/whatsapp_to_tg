@@ -3,7 +3,7 @@
     <defs>
       <g id="rocket-ship">
         <!-- Scale wrapper -->
-        <g transform="scale(3.5)">
+        <g transform="scale(2.1)">
           <!-- Ship Body -->
           <path fill="#ffffff" d="M0-10 C-5-10 -5 5 0 10 C5 5 5-10 0-10 Z" />
           <path fill="#ff4757" d="M0-10 C-5-10 -5 -5 0 -8 C5 -5 5 -10 0-10 Z" />
@@ -91,7 +91,7 @@ defineProps<{
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 10;
+  z-index: 5;
 }
 
 .element-hidden {

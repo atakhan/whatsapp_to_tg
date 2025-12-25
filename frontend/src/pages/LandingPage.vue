@@ -1,5 +1,5 @@
 <template>
-  <div class="page landing-page">
+  <div class="page landing-page" @click="onPageClick">
     <!-- Stars -->
     <StarsBackground />
 
@@ -62,29 +62,7 @@
     </div>
 
     <!-- Space layer: ship + engines (physics-driven) -->
-    <RocketShip :shipState="shipState" :hidden="true" />
-
-    <!-- Chat circles orbiting around WhatsApp planet -->
-    <div 
-      v-for="(chat, index) in visibleChats" 
-      :key="chat.id"
-      class="chat-circle"
-      :class="{ 
-        'chat-visible': chat.visible, 
-        'has-avatar': chat.avatar,
-        'chat-selected': selectedChat?.id === chat.id,
-        'chat-dimmed': selectedChat && selectedChat.id !== chat.id,
-        'chat-moving-to-corner': chatMovingToCorner && selectedChat?.id === chat.id,
-        'chat-moving-to-planet': chatMovingToPlanet && selectedChat?.id === chat.id,
-        'chat-hiding': chatsHiding && selectedChat && selectedChat.id !== chat.id
-      }"
-      :style="getChatCircleStyle(index)"
-      @click="selectChat(chat)"
-      :title="chat.name"
-    >
-      <img v-if="chat.avatar" :src="chat.avatar" :alt="chat.name" class="chat-avatar" @error="onAvatarError($event, chat)" />
-      <span v-else class="chat-initial">{{ getChatInitial(chat.name) }}</span>
-    </div>
+    <RocketShip :shipState="shipState" :hidden="!shouldShowRocket" />
     
     <!-- Title for chat selection -->
     
@@ -292,6 +270,28 @@
             Просмотр чата
           </button>
         </div>
+        
+        <!-- Chat circles orbiting around WhatsApp planet (inside split-whatsapp, after search) -->
+        <div 
+          v-for="(chat, index) in visibleChats" 
+          :key="chat.id"
+          class="chat-circle"
+          :class="{ 
+            'chat-visible': chat.visible, 
+            'has-avatar': chat.avatar,
+            'chat-selected': selectedChat?.id === chat.id,
+            'chat-dimmed': selectedChat && selectedChat.id !== chat.id,
+            'chat-moving-to-corner': chatMovingToCorner && selectedChat?.id === chat.id,
+            'chat-moving-to-planet': chatMovingToPlanet && selectedChat?.id === chat.id,
+            'chat-hiding': chatsHiding && selectedChat && selectedChat.id !== chat.id
+          }"
+          :style="getChatCircleStyle(index)"
+          @click="selectChat(chat)"
+          :title="chat.name"
+        >
+          <img v-if="chat.avatar" :src="chat.avatar" :alt="chat.name" class="chat-avatar" @error="onAvatarError($event, chat)" />
+          <span v-else class="chat-initial">{{ getChatInitial(chat.name) }}</span>
+        </div>
       </div>
       
       <div class="split-section split-telegram">
@@ -398,7 +398,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { onMounted, onUnmounted, ref, computed, nextTick } from 'vue'
 import api from '../api/client'
 import { store } from '../store'
 import { useRocketPhysics } from '../composables/useRocketPhysics'
@@ -451,20 +451,6 @@ const whatsappShrunk = ref(false) // true when WhatsApp planet shrinks after con
 const waBoxShadow = ref('')
 const tgBoxShadow = ref('')
 
-const rocket = useRocketPhysics({
-  planetRefs: {
-    wa: planetWa,
-    tg: planetTg,
-  },
-  hideStage: ref(0), // Not used in new flow, but required by composable
-  onGravityUpdate: (gravityViz) => {
-    waBoxShadow.value = shadowForPlanet('wa', gravityViz.wa, PLANET_VISUAL)
-    tgBoxShadow.value = shadowForPlanet('tg', gravityViz.tg, PLANET_VISUAL)
-  },
-})
-
-const { shipState, flightState, spawnShipAboveWhatsApp, startPhysics, stopPhysics } = rocket
-
 // ----------------------------
 // WhatsApp connection state
 // ----------------------------
@@ -494,6 +480,12 @@ const displayStatusMessage = computed(() => {
     return `Выбран чат: ${selectedChat.value.name}`
   }
   return whatsappStatusMessageInternal.value
+})
+
+// Computed property to show rocket - always visible
+const shouldShowRocket = computed(() => {
+  // Rocket is always visible regardless of state
+  return true
 })
 
 // ----------------------------
@@ -555,6 +547,22 @@ const {
   closeMessages 
 } = messagesComposable
 
+// Initialize rocket physics after messagesLoading is defined
+const rocket = useRocketPhysics({
+  planetRefs: {
+    wa: planetWa,
+    tg: planetTg,
+  },
+  hideStage: ref(0), // Not used in new flow, but required by composable
+  messagesLoading: messagesLoading, // Pass messages loading state
+  onGravityUpdate: (gravityViz) => {
+    waBoxShadow.value = shadowForPlanet('wa', gravityViz.wa, PLANET_VISUAL)
+    tgBoxShadow.value = shadowForPlanet('tg', gravityViz.tg, PLANET_VISUAL)
+  },
+})
+
+const { shipState, flightState, spawnShipAboveWhatsApp, launchMission, startPhysics, stopPhysics } = rocket
+
 // Use constants from UI_SIZES
 const CHAT_CIRCLE_SIZE = UI_SIZES.CHAT_CIRCLE_SIZE
 const RING_GAP = UI_SIZES.RING_GAP
@@ -607,16 +615,86 @@ interface TelegramChat {
 // WhatsApp Connection Logic
 // ----------------------------
 // ----------------------------
+// Rocket Launch Handler
+// ----------------------------
+function onPageClick(event: MouseEvent) {
+  // Launch rocket on click only if rocket is visible and not already launched
+  if (shouldShowRocket.value && !flightState.launched) {
+    // Don't launch if clicking on buttons or chat circles (but allow clicks on planets)
+    const target = event.target as HTMLElement
+    if (target.closest('button') || target.closest('.chat-circle') || target.closest('.telegram-chat-circle')) {
+      return
+    }
+    
+    // Determine which section contains the click point
+    // Use the click coordinates to find the section
+    const clickX = event.clientX
+    const clickY = event.clientY
+    
+    // Check if click is in WhatsApp section (left half of screen)
+    const screenWidth = window.innerWidth
+    const isInWhatsAppSection = clickX < screenWidth / 2
+    
+    // Also check by DOM element (for clicks on planets or other elements)
+    const clickedElement = event.target as HTMLElement
+    const whatsappSection = clickedElement.closest('.split-whatsapp')
+    const telegramSection = clickedElement.closest('.split-telegram')
+    
+    // Determine target planet based on section
+    let targetPlanet: 'wa' | 'tg' = 'tg' // default
+    
+    if (whatsappSection || isInWhatsAppSection) {
+      targetPlanet = 'wa'
+    } else if (telegramSection || !isInWhatsAppSection) {
+      targetPlanet = 'tg'
+    }
+    
+    // Launch to the planet in the clicked section
+    launchMission(targetPlanet)
+  }
+}
+
+// ----------------------------
 // Planet Click Handlers
 // ----------------------------
-function onWhatsAppPlanetClick() {
-  // Only allow click if not connected and not already loading
+function onWhatsAppPlanetClick(event: MouseEvent) {
+  // Stop event propagation to prevent onPageClick from firing
+  event.stopPropagation()
+  
+  // If rocket is visible and not launched, launch rocket AND start connection simultaneously
+  if (shouldShowRocket.value && !flightState.launched) {
+    // Launch rocket to WhatsApp planet
+    launchMission('wa')
+    // Start WhatsApp connection at the same time
+    if (waStatus.value === 'idle') {
+      startWhatsAppAuth()
+    }
+    return
+  }
+  
+  // Handle planet click for connection (when rocket is already launched or not visible)
+  // Only allow click if not connected
   if (waStatus.value === 'idle') {
     startWhatsAppAuth()
   }
 }
 
-function onTelegramPlanetClick() {
+function onTelegramPlanetClick(event: MouseEvent) {
+  // Stop event propagation to prevent onPageClick from firing
+  event.stopPropagation()
+  
+  // If rocket is visible and not launched, launch rocket AND start connection simultaneously
+  if (shouldShowRocket.value && !flightState.launched) {
+    // Launch rocket to Telegram planet
+    launchMission('tg')
+    // Start Telegram connection at the same time
+    if (tgPhase.value === 'hidden') {
+      startTelegramAuth()
+    }
+    return
+  }
+  
+  // Handle planet click for connection (when rocket is already launched or not visible)
   // Only allow click if not connected and not already in auth flow
   if (tgPhase.value === 'hidden') {
     startTelegramAuth()
@@ -1881,6 +1959,10 @@ async function restoreTelegramSession() {
 onMounted(async () => {
   flightState.launched = false
   flightState.dockedAt = 'wa'
+  
+  // Wait for DOM to be ready before positioning rocket
+  await nextTick()
+  
   // Start visible near the top, aligned to WhatsApp. It will hover until user clicks.
   spawnShipAboveWhatsApp()
   startPhysics()
@@ -2078,7 +2160,7 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   pointer-events: none;
-  z-index: 10;
+  z-index: 40;
 }
 
 .split-title {
@@ -2106,7 +2188,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: auto;
   pointer-events: auto;
-  z-index: 10;
+  z-index: 40;
 }
 
 .split-whatsapp .split-title-top {
@@ -2330,7 +2412,7 @@ onUnmounted(() => {
 .planet {
   position: absolute;
   border-radius: 50%;
-  z-index: 6;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2350,7 +2432,7 @@ onUnmounted(() => {
   background: #25D366;
   position: relative;
   box-shadow: inset -40px -40px 0 rgba(0,0,0,0.1), 0 0 80px rgba(37, 211, 102, 0.5);
-  z-index: 20;
+  z-index: 5;
   transition: width 0.6s ease-out,
               height 0.6s ease-out,
               transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
@@ -2478,7 +2560,7 @@ onUnmounted(() => {
   left: 50% !important;
   transform: translate(-50%, 50%);
   box-shadow: inset -15px -15px 0 rgba(0,0,0,0.1), 0 0 40px rgba(37, 211, 102, 0.5);
-  z-index: 10 !important; /* Lower than chat circles (z-index: 15) */
+  z-index: 5 !important; /* Fourth layer: planet and rocket */
 }
 
 .planet-wa-shrunk .planet-logo {
@@ -2974,7 +3056,7 @@ onUnmounted(() => {
   bottom: 60px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 101;
   width: 100%;
   max-width: 500px;
   padding: 0 20px;
@@ -2986,7 +3068,7 @@ onUnmounted(() => {
   bottom: 2rem;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 101;
   width: calc(100% - 40px);
   max-width: 500px;
   padding: 0 20px;
@@ -3023,7 +3105,7 @@ onUnmounted(() => {
   bottom: 2rem;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 101;
   width: calc(100% - 40px);
   max-width: 500px;
   padding: 0 20px;
@@ -3121,7 +3203,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 15;
+  z-index: 30;
   opacity: 0;
   transform: scale(0);
   transition: opacity 0.3s ease-out, transform 0.3s ease-out, box-shadow 0.2s ease, z-index 0s, left 0.6s cubic-bezier(0.4, 0, 0.2, 1), top 0.6s cubic-bezier(0.4, 0, 0.2, 1), width 0.6s cubic-bezier(0.4, 0, 0.2, 1), height 0.6s cubic-bezier(0.4, 0, 0.2, 1);

@@ -2,21 +2,21 @@
 export const PHYSICS = {
   // Engine
   ENGINE_POWER: 0.3, // max thrust acceleration per frame (px/frame^2)
-  MAX_CONTROL_ACCEL_FACTOR: 0.2,
+  MAX_CONTROL_ACCEL_FACTOR: 0.6, // Increased from 0.2 to allow more control authority
   ROTATION_POWER: 0.003,
   ROTATION_DRAG: 0.94,
   VELOCITY_DRAG: 0.99,
-  // Gravity
-  WA_MU: 3200,
-  TG_MU: 5200,
+  // Gravity (reduced for gentle drifting between planets)
+  WA_MU: 800,  // Reduced from 3200 for gentle drift
+  TG_MU: 800,  // Same as WhatsApp for balanced gravity
   GRAVITY_SOFTENING_PX: 180,
   GRAVITY_VISUALIZATION_SCALE: 18,
   // Flight behavior
   WAYPOINT_SWITCH_X_PX: 320,
-  IDLE_HOVER_GAP_PX: 160,
+  IDLE_HOVER_GAP_PX: 80, // Reduced from 160 (half the original height)
   IDLE_HOVER_KP: 0.0008,
   IDLE_HOVER_KD: 0.12,
-  PLANET_CLEARANCE_PX: 22,
+  PLANET_CLEARANCE_PX: 25,
   SCREEN_MARGIN_PX: 16,
   LANDING_ZONE_PX: 220,
   // Transfer
@@ -27,11 +27,6 @@ export const PHYSICS = {
   // Hover
   HOVER_TG_DIST_PX: 35,
   HOVER_TG_SPEED: 0.6,
-  // Lazy acceleration
-  LAZY_MIN_TOWARD_SPEED: 0.25,
-  LAZY_MAX_TOWARD_SPEED: 0.55,
-  LAZY_Y_ERROR_ALLOW_PX: 70,
-  LAZY_DIST_MIN_PX: 160,
   // Control
   MAX_CONTROL_ACCEL: 0.3 * 0.2, // ENGINE_POWER * MAX_CONTROL_ACCEL_FACTOR
   ROTATION_ERROR_THRESHOLD: 0.05,
@@ -49,7 +44,7 @@ export const PHYSICS = {
 
 // Ship Visual Effects
 export const SHIP_VISUAL = {
-  SHIP_SCALE: 3.5,
+  SHIP_SCALE: 2.1, // 3.5 * 0.6 = 2.1
   FLAME_SCALE_HIGH: '1 1.5; 1 2.5; 1 1.5',
   FLAME_SCALE_LOW: '1 0.5; 1 0.8; 1 0.5',
   FLAME_THROTTLE_THRESHOLD: 0.5,
