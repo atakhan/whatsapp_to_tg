@@ -505,13 +505,18 @@ const chatMovingToCorner = ref(false)
 const chatMovingToPlanet = ref(false) // Chat moving to planet center
 const chatsHiding = ref(false) // Other chats hiding
 const chatSearchQuery = ref('')
-const chatThetaOffset = ref(0) // θoffset - единственный параметр, управляемый пользователем (в радианах)
+const chatThetaOffset = ref(0) // θoffset - текущий угол (плавно интерполируется)
+const targetChatThetaOffset = ref(0) // Целевой угол (устанавливается при скроллинге)
 
 // Cache planet center position to keep orbits stable
 const planetCenterCache = ref<{ x: number; y: number } | null>(null)
 
 // Constants for polar coordinate system
 const TAU = Math.PI * 2 // 2π
+
+// Smooth scrolling animation state
+let scrollAnimationFrameId: number | null = null
+const SCROLL_SMOOTHING_FACTOR = 0.15 // Скорость интерполяции (0-1, чем больше - тем быстрее)
 
 // Normalize angle to [0, 2π] range
 function normalizeAngle(a: number): number {
@@ -520,26 +525,68 @@ function normalizeAngle(a: number): number {
   return a
 }
 
+// Normalize angle difference for smooth interpolation across 0/2π boundary
+function normalizeAngleDifference(current: number, target: number): number {
+  let diff = target - current
+  // Normalize to [-π, π] range for shortest path
+  if (diff > Math.PI) diff -= TAU
+  if (diff < -Math.PI) diff += TAU
+  return diff
+}
+
+// Smooth scroll animation loop
+function animateChatScroll() {
+  const current = chatThetaOffset.value
+  const target = targetChatThetaOffset.value
+  
+  // Calculate shortest angular difference
+  const diff = normalizeAngleDifference(current, target)
+  
+  // If difference is very small, snap to target to avoid infinite micro-movements
+  if (Math.abs(diff) < 0.001) {
+    chatThetaOffset.value = normalizeAngle(target)
+  } else {
+    // Smooth interpolation using exponential easing
+    chatThetaOffset.value = normalizeAngle(current + diff * SCROLL_SMOOTHING_FACTOR)
+  }
+  
+  // Continue animation if there's still a difference
+  if (Math.abs(normalizeAngleDifference(chatThetaOffset.value, target)) > 0.001) {
+    scrollAnimationFrameId = requestAnimationFrame(animateChatScroll)
+  } else {
+    scrollAnimationFrameId = null
+  }
+}
+
+// Start smooth scroll animation if not already running
+function startScrollAnimation() {
+  if (scrollAnimationFrameId === null) {
+    scrollAnimationFrameId = requestAnimationFrame(animateChatScroll)
+  }
+}
+
 // Messages visualization state (using composable)
 let chatsEventSource: EventSource | null = null
 let activeTimeouts: number[] = [] // Track all setTimeout calls for cleanup
 
-// Chat scroll rotation handler - прямое отображение ввода в угол (без сглаживания)
+// Chat scroll rotation handler - обновляет целевой угол для плавной анимации
 function handleChatScroll(event: WheelEvent) {
   // Only rotate if chats are visible
   if (waStatus.value === 'connected' && !selectedChat.value && !chatsLoading.value && chats.value.length > 0) {
     // Prevent default scroll behavior
     event.preventDefault()
     
-    // Прямое изменение θoffset от ввода (никакого сглаживания во время жеста)
+    // Обновляем целевой угол (не текущий - он будет плавно интерполироваться)
     // Negative deltaY means scrolling up (rotate counter-clockwise)
     // Positive deltaY means scrolling down (rotate clockwise)
     const k = 0.002 // Sensitivity coefficient
-    chatThetaOffset.value += event.deltaY * k
+    targetChatThetaOffset.value += event.deltaY * k
     
-    // Нормализация угла для предотвращения накопления ошибок
-    // Но не ломаем "бесконечность" - шаги индекса сохраняются
-    chatThetaOffset.value = normalizeAngle(chatThetaOffset.value)
+    // Нормализация целевого угла для предотвращения накопления ошибок
+    targetChatThetaOffset.value = normalizeAngle(targetChatThetaOffset.value)
+    
+    // Запускаем анимацию плавного скроллинга
+    startScrollAnimation()
   }
 }
 
@@ -939,6 +986,10 @@ function resetWhatsAppState() {
   selectedChat.value = null
   chatSearchQuery.value = ''
   
+  // Reset scroll angles
+  chatThetaOffset.value = 0
+  targetChatThetaOffset.value = 0
+  
   // Clear store
   store.setWhatsAppSessionId(null)
   store.whatsappSessionActive = false
@@ -974,6 +1025,11 @@ async function loadChats() {
   visibleChats.value = []
   chatSearchQuery.value = '' // Reset search
   planetCenterCache.value = null // Reset planet center cache
+  
+  // Reset scroll angles when loading new chats
+  chatThetaOffset.value = 0
+  targetChatThetaOffset.value = 0
+  
   whatsappStatusMessageInternal.value = 'Подгружаем чаты...'
   console.log('[WA] loadChats: start, session', waSessionId.value)
   
@@ -1908,6 +1964,10 @@ function finishSession() {
   visibleChats.value = []
   whatsappInCorner.value = false
   
+  // Reset scroll angles
+  chatThetaOffset.value = 0
+  targetChatThetaOffset.value = 0
+  
   // Reset Telegram state
   tgPhase.value = 'hidden'
   telegramStatusMessage.value = 'Не авторизовано'
@@ -2023,6 +2083,9 @@ onMounted(async () => {
   spawnShipAboveWhatsApp()
   startPhysics()
   
+  // Initialize target angle to current angle
+  targetChatThetaOffset.value = chatThetaOffset.value
+  
   // Add scroll listener for chat rotation
   window.addEventListener('wheel', handleChatScroll, { passive: false })
   
@@ -2042,6 +2105,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPhysics()
+  
+  // Stop scroll animation
+  if (scrollAnimationFrameId !== null) {
+    cancelAnimationFrame(scrollAnimationFrameId)
+    scrollAnimationFrameId = null
+  }
   
   // Remove scroll listener
   window.removeEventListener('wheel', handleChatScroll)
