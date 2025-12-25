@@ -9,7 +9,8 @@ from app.core.config import settings
 from app.services.whatsapp.browser_manager import BrowserManager
 from app.services.whatsapp.session_manager import SessionManager
 from app.services.whatsapp.connection_manager import ConnectionManager
-from app.services.whatsapp.chat_parser import ChatParser
+from app.services.whatsapp.chat_parser import ChatParser  # Keep for backward compatibility
+from app.services.whatsapp.parsing.orchestrator import ChatParsingOrchestrator
 from app.services.whatsapp.message_parser import MessageParser
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ class WhatsAppConnectService:
             self.session_manager,
             self.browser_manager
         )
+        # New parsing orchestrator (preferred)
+        self.chat_orchestrator = ChatParsingOrchestrator()
+        # Old chat parser (kept for backward compatibility, will be removed later)
         self.chat_parser = ChatParser()
         self.message_parser = MessageParser()
     
@@ -85,25 +89,66 @@ class WhatsAppConnectService:
     
     # Chat methods
     async def get_chats_streaming(self, session_id: str) -> AsyncGenerator[List[Dict], None]:
-        """Get list of WhatsApp chats, streaming them as they are parsed"""
+        """
+        Get list of WhatsApp chats, streaming them as they are parsed.
+        
+        Uses new ChatParsingOrchestrator with multi-source support.
+        Returns batches of chats in old format for backward compatibility.
+        """
         session = self.session_manager.get_session(session_id)
         if not session or session.get('status') != 'ready':
             logger.warning("Session %s not ready for get_chats_streaming", session_id)
             return
         
         page = session['page']
-        async for batch in self.chat_parser.parse_chats_streaming(page):
-            yield batch
+        
+        # Use new orchestrator
+        async for result in self.chat_orchestrator.parse_chats_streaming(page):
+            # Convert ParsingResult to old format for backward compatibility
+            if result.chats:
+                # Convert ChatDTO to old Dict format
+                batch = [chat.to_dict() for chat in result.chats]
+                yield batch
     
     async def get_chats(self, session_id: str) -> List[Dict]:
-        """Get list of WhatsApp chats from the connected session"""
+        """
+        Get list of WhatsApp chats from the connected session.
+        
+        Uses new ChatParsingOrchestrator with multi-source support.
+        Returns chats in old format for backward compatibility.
+        """
         session = self.session_manager.get_session(session_id)
         if not session or session.get('status') != 'ready':
             logger.warning("Session %s not ready for get_chats", session_id)
             return []
         
         page = session['page']
-        return await self.chat_parser.parse_chats(page)
+        
+        # Use new orchestrator
+        result = await self.chat_orchestrator.parse_chats(page)
+        
+        # Convert ParsingResult to old format for backward compatibility
+        return [chat.to_dict() for chat in result.chats]
+    
+    async def get_chats_with_metadata(self, session_id: str):
+        """
+        Get chats with full metadata (new API).
+        
+        Returns ParsingResult with completeness, anomalies, and metadata.
+        """
+        session = self.session_manager.get_session(session_id)
+        if not session or session.get('status') != 'ready':
+            logger.warning("Session %s not ready for get_chats_with_metadata", session_id)
+            from app.services.whatsapp.parsing.models.parsing_result import ParsingResult
+            return ParsingResult(
+                chats=[],
+                completeness="partial",
+                collected=0,
+                source_type="unknown"
+            )
+        
+        page = session['page']
+        return await self.chat_orchestrator.parse_chats(page)
     
     # Message methods
     async def get_chat_messages_streaming(

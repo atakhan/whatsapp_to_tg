@@ -535,24 +535,11 @@ function handleChatScroll(event: WheelEvent) {
     // Negative deltaY means scrolling up (rotate counter-clockwise)
     // Positive deltaY means scrolling down (rotate clockwise)
     const k = 0.002 // Sensitivity coefficient
-    const oldThetaOffset = chatThetaOffset.value
     chatThetaOffset.value += event.deltaY * k
     
     // Нормализация угла для предотвращения накопления ошибок
     // Но не ломаем "бесконечность" - шаги индекса сохраняются
     chatThetaOffset.value = normalizeAngle(chatThetaOffset.value)
-    
-    // Логирование для отладки
-    if (Math.abs(event.deltaY) > 10) { // Логируем только при значительном скролле
-      console.log('[CHAT SCROLL]', {
-        deltaY: event.deltaY,
-        oldThetaOffset,
-        newThetaOffset: chatThetaOffset.value,
-        delta: chatThetaOffset.value - oldThetaOffset,
-        planetCenter: planetCenterCache.value,
-        visibleChatsCount: visibleChats.value.length
-      })
-    }
   }
 }
 
@@ -1109,15 +1096,6 @@ async function loadChats() {
 
 // Removed unused function animateChatsAppearing - chats are now animated inline in loadChats
 
-// Track previous values for logging
-let lastLoggedValues: {
-  cx?: number
-  cy?: number
-  r?: number
-  thetaOffset?: number
-  timestamp?: number
-} = {}
-
 function getChatCircleStyle(index: number) {
   // Calculate which ring and position within that ring
   let ringIndex = 0
@@ -1149,75 +1127,6 @@ function getChatCircleStyle(index: number) {
   // CRITICAL: Center must NEVER change during scroll - only angle changes, not center or radius
   const cx = planetCenterCache.value?.x ?? (window.innerWidth / 4)
   const cy = planetCenterCache.value?.y ?? (window.innerHeight / 2)
-  
-  // Логирование изменений (только для первого чата и при изменениях)
-  if (index === 0) {
-    const now = Date.now()
-    const cosTheta = Math.cos(theta)
-    const sinTheta = Math.sin(theta)
-    const calculatedX = cx + r * cosTheta
-    const calculatedY = cy + r * sinTheta
-    const distanceFromCenter = Math.sqrt(
-      Math.pow(calculatedX - cx, 2) + 
-      Math.pow(calculatedY - cy, 2)
-    )
-    
-    const shouldLog = 
-      lastLoggedValues.cx !== cx ||
-      lastLoggedValues.cy !== cy ||
-      lastLoggedValues.r !== r ||
-      lastLoggedValues.thetaOffset !== chatThetaOffset.value ||
-      (now - (lastLoggedValues.timestamp || 0)) > 500 // Логируем минимум раз в 500мс
-    
-    if (shouldLog) {
-      const distanceDiff = Math.abs(distanceFromCenter - r)
-      const finalX = calculatedX - CHAT_CIRCLE_SIZE / 2
-      const finalY = calculatedY - CHAT_CIRCLE_SIZE / 2
-      
-      // Выводим все ключевые данные в читаемом формате
-      console.log(
-        `[CHAT POSITION] Chat #0 | ` +
-        `θoffset: ${chatThetaOffset.value.toFixed(4)} | ` +
-        `cx: ${cx.toFixed(1)} cy: ${cy.toFixed(1)} | ` +
-        `r: ${r.toFixed(1)} | ` +
-        `distance: ${distanceFromCenter.toFixed(1)} (expected: ${r.toFixed(1)}) | ` +
-        `diff: ${distanceDiff.toFixed(2)} | ` +
-        `pos: (${finalX.toFixed(0)}, ${finalY.toFixed(0)})`
-      )
-      
-      // Детальная информация в объекте для инспекции
-      console.log('[CHAT POSITION DETAILS]', {
-        thetaOffset: chatThetaOffset.value.toFixed(4),
-        center: { cx: cx.toFixed(2), cy: cy.toFixed(2) },
-        radius: r.toFixed(2),
-        distance: { actual: distanceFromCenter.toFixed(2), expected: r.toFixed(2), diff: distanceDiff.toFixed(2) },
-        position: { x: finalX.toFixed(2), y: finalY.toFixed(2) },
-        planetCenterCache: planetCenterCache.value ? { x: planetCenterCache.value.x.toFixed(2), y: planetCenterCache.value.y.toFixed(2) } : null,
-        windowSize: { width: window.innerWidth, height: window.innerHeight }
-      })
-      
-      // Проверка на аномалии
-      if (distanceDiff > 1) {
-        console.warn(
-          `[CHAT POSITION] ⚠️ АНОМАЛИЯ: расстояние (${distanceFromCenter.toFixed(2)}) не равно радиусу (${r.toFixed(2)})! ` +
-          `Разница: ${distanceDiff.toFixed(2)}px`
-        )
-      }
-      
-      // Проверка изменения центра или радиуса
-      if (lastLoggedValues.cx !== undefined && lastLoggedValues.cx !== cx) {
-        console.warn(`[CHAT POSITION] ⚠️ ЦЕНТР ИЗМЕНИЛСЯ: cx ${lastLoggedValues.cx.toFixed(2)} → ${cx.toFixed(2)}`)
-      }
-      if (lastLoggedValues.cy !== undefined && lastLoggedValues.cy !== cy) {
-        console.warn(`[CHAT POSITION] ⚠️ ЦЕНТР ИЗМЕНИЛСЯ: cy ${lastLoggedValues.cy.toFixed(2)} → ${cy.toFixed(2)}`)
-      }
-      if (lastLoggedValues.r !== undefined && lastLoggedValues.r !== r) {
-        console.warn(`[CHAT POSITION] ⚠️ РАДИУС ИЗМЕНИЛСЯ: r ${lastLoggedValues.r.toFixed(2)} → ${r.toFixed(2)}`)
-      }
-      
-      lastLoggedValues = { cx, cy, r, thetaOffset: chatThetaOffset.value, timestamp: now }
-    }
-  }
   
   // Формула позиционирования в полярных координатах:
   // x = cx + r * cos(θ)

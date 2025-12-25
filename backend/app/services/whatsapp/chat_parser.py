@@ -261,6 +261,13 @@ class ChatParser:
                     except Exception as e:
                         logger.debug("Error scrolling to bottom: %s", str(e))
             
+            # Check if we stopped due to max iterations limit
+            if scroll_iteration == max_scroll_iterations - 1:
+                logger.warning(
+                    "Stopped scrolling: reached maximum iterations limit (%d) (total parsed: %d, reached_bottom: %s, no_new_chats_count: %d)",
+                    max_scroll_iterations, total_parsed, reached_bottom, no_new_chats_count
+                )
+            
             # Final check: scroll to absolute bottom and parse one more time
             logger.info("Performing final check: scrolling to absolute bottom...")
             try:
