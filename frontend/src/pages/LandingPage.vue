@@ -505,10 +505,56 @@ const chatMovingToCorner = ref(false)
 const chatMovingToPlanet = ref(false) // Chat moving to planet center
 const chatsHiding = ref(false) // Other chats hiding
 const chatSearchQuery = ref('')
+const chatThetaOffset = ref(0) // θoffset - единственный параметр, управляемый пользователем (в радианах)
+
+// Cache planet center position to keep orbits stable
+const planetCenterCache = ref<{ x: number; y: number } | null>(null)
+
+// Constants for polar coordinate system
+const TAU = Math.PI * 2 // 2π
+
+// Normalize angle to [0, 2π] range
+function normalizeAngle(a: number): number {
+  a = a % TAU
+  if (a < 0) a += TAU
+  return a
+}
 
 // Messages visualization state (using composable)
 let chatsEventSource: EventSource | null = null
 let activeTimeouts: number[] = [] // Track all setTimeout calls for cleanup
+
+// Chat scroll rotation handler - прямое отображение ввода в угол (без сглаживания)
+function handleChatScroll(event: WheelEvent) {
+  // Only rotate if chats are visible
+  if (waStatus.value === 'connected' && !selectedChat.value && !chatsLoading.value && chats.value.length > 0) {
+    // Prevent default scroll behavior
+    event.preventDefault()
+    
+    // Прямое изменение θoffset от ввода (никакого сглаживания во время жеста)
+    // Negative deltaY means scrolling up (rotate counter-clockwise)
+    // Positive deltaY means scrolling down (rotate clockwise)
+    const k = 0.002 // Sensitivity coefficient
+    const oldThetaOffset = chatThetaOffset.value
+    chatThetaOffset.value += event.deltaY * k
+    
+    // Нормализация угла для предотвращения накопления ошибок
+    // Но не ломаем "бесконечность" - шаги индекса сохраняются
+    chatThetaOffset.value = normalizeAngle(chatThetaOffset.value)
+    
+    // Логирование для отладки
+    if (Math.abs(event.deltaY) > 10) { // Логируем только при значительном скролле
+      console.log('[CHAT SCROLL]', {
+        deltaY: event.deltaY,
+        oldThetaOffset,
+        newThetaOffset: chatThetaOffset.value,
+        delta: chatThetaOffset.value - oldThetaOffset,
+        planetCenter: planetCenterCache.value,
+        visibleChatsCount: visibleChats.value.length
+      })
+    }
+  }
+}
 
 // ----------------------------
 // Migration state
@@ -940,6 +986,7 @@ async function loadChats() {
   chats.value = []
   visibleChats.value = []
   chatSearchQuery.value = '' // Reset search
+  planetCenterCache.value = null // Reset planet center cache
   whatsappStatusMessageInternal.value = 'Подгружаем чаты...'
   console.log('[WA] loadChats: start, session', waSessionId.value)
   
@@ -1009,6 +1056,17 @@ async function loadChats() {
               const timeoutId = window.setTimeout(() => {
                 const visibleChat = { ...chat, visible: true }
                 visibleChats.value.push(visibleChat)
+                
+                // Cache planet center position when first chat appears
+                // Use static calculation instead of getBoundingClientRect to avoid animation issues
+                if (visibleChats.value.length === 1 && !planetCenterCache.value) {
+                  // Planet is in left half of screen (split-whatsapp section)
+                  // Section is centered vertically and horizontally in its half
+                  planetCenterCache.value = {
+                    x: window.innerWidth / 4, // Left half center (25% of screen width)
+                    y: window.innerHeight / 2 // Vertical center (50% of screen height)
+                  }
+                }
               }, index * ANIMATION.CHAT_APPEAR_DELAY)
               activeTimeouts.push(timeoutId)
             })
@@ -1051,6 +1109,15 @@ async function loadChats() {
 
 // Removed unused function animateChatsAppearing - chats are now animated inline in loadChats
 
+// Track previous values for logging
+let lastLoggedValues: {
+  cx?: number
+  cy?: number
+  r?: number
+  thetaOffset?: number
+  timestamp?: number
+} = {}
+
 function getChatCircleStyle(index: number) {
   // Calculate which ring and position within that ring
   let ringIndex = 0
@@ -1063,23 +1130,103 @@ function getChatCircleStyle(index: number) {
     chatsInCurrentRing = getChatsPerRing(ringIndex)
   }
   
-  // Calculate angle (clockwise from top)
+  // Calculate base angle for this element (θbase = i * stepAngle)
+  // i - логический индекс элемента в кольце
   const totalInRing = getChatsPerRing(ringIndex)
-  const angleStep = (2 * Math.PI) / totalInRing
-  const angle = -Math.PI / 2 + positionInRing * angleStep // Start from top (-90°)
+  const stepAngle = TAU / totalInRing // Шаг угла для элементов в кольце
+  const thetaBase = -Math.PI / 2 + positionInRing * stepAngle // Start from top (-90°)
   
-  // Calculate radius for this ring
+  // Формула позиционирования: θ = θbase + θoffset
+  const theta = thetaBase + chatThetaOffset.value
+  
+  // Calculate radius for this ring (FIXED - should not change during scroll)
   // Always use reduced planet size (78px) for chat positioning when chats are displayed
   const planetSize = 78 // Always use reduced size for chat orbit calculation
   const baseRadius = planetSize / 2 + RING_GAP + CHAT_CIRCLE_SIZE / 2
-  const ringRadius = baseRadius + ringIndex * (CHAT_CIRCLE_SIZE + RING_GAP)
+  const r = baseRadius + ringIndex * (CHAT_CIRCLE_SIZE + RING_GAP) // r - радиус орбиты (СТРОГО ФИКСИРОВАН)
   
-  // Calculate position relative to WhatsApp planet (left half of screen, centered)
-  const centerX = window.innerWidth / 4 // Left half center
-  const centerY = window.innerHeight / 2 // Vertical center
+  // Use cached planet center (set when first chat appears, static calculation)
+  // CRITICAL: Center must NEVER change during scroll - only angle changes, not center or radius
+  const cx = planetCenterCache.value?.x ?? (window.innerWidth / 4)
+  const cy = planetCenterCache.value?.y ?? (window.innerHeight / 2)
   
-  const x = centerX + Math.cos(angle) * ringRadius - CHAT_CIRCLE_SIZE / 2
-  const y = centerY + Math.sin(angle) * ringRadius - CHAT_CIRCLE_SIZE / 2
+  // Логирование изменений (только для первого чата и при изменениях)
+  if (index === 0) {
+    const now = Date.now()
+    const cosTheta = Math.cos(theta)
+    const sinTheta = Math.sin(theta)
+    const calculatedX = cx + r * cosTheta
+    const calculatedY = cy + r * sinTheta
+    const distanceFromCenter = Math.sqrt(
+      Math.pow(calculatedX - cx, 2) + 
+      Math.pow(calculatedY - cy, 2)
+    )
+    
+    const shouldLog = 
+      lastLoggedValues.cx !== cx ||
+      lastLoggedValues.cy !== cy ||
+      lastLoggedValues.r !== r ||
+      lastLoggedValues.thetaOffset !== chatThetaOffset.value ||
+      (now - (lastLoggedValues.timestamp || 0)) > 500 // Логируем минимум раз в 500мс
+    
+    if (shouldLog) {
+      const distanceDiff = Math.abs(distanceFromCenter - r)
+      const finalX = calculatedX - CHAT_CIRCLE_SIZE / 2
+      const finalY = calculatedY - CHAT_CIRCLE_SIZE / 2
+      
+      // Выводим все ключевые данные в читаемом формате
+      console.log(
+        `[CHAT POSITION] Chat #0 | ` +
+        `θoffset: ${chatThetaOffset.value.toFixed(4)} | ` +
+        `cx: ${cx.toFixed(1)} cy: ${cy.toFixed(1)} | ` +
+        `r: ${r.toFixed(1)} | ` +
+        `distance: ${distanceFromCenter.toFixed(1)} (expected: ${r.toFixed(1)}) | ` +
+        `diff: ${distanceDiff.toFixed(2)} | ` +
+        `pos: (${finalX.toFixed(0)}, ${finalY.toFixed(0)})`
+      )
+      
+      // Детальная информация в объекте для инспекции
+      console.log('[CHAT POSITION DETAILS]', {
+        thetaOffset: chatThetaOffset.value.toFixed(4),
+        center: { cx: cx.toFixed(2), cy: cy.toFixed(2) },
+        radius: r.toFixed(2),
+        distance: { actual: distanceFromCenter.toFixed(2), expected: r.toFixed(2), diff: distanceDiff.toFixed(2) },
+        position: { x: finalX.toFixed(2), y: finalY.toFixed(2) },
+        planetCenterCache: planetCenterCache.value ? { x: planetCenterCache.value.x.toFixed(2), y: planetCenterCache.value.y.toFixed(2) } : null,
+        windowSize: { width: window.innerWidth, height: window.innerHeight }
+      })
+      
+      // Проверка на аномалии
+      if (distanceDiff > 1) {
+        console.warn(
+          `[CHAT POSITION] ⚠️ АНОМАЛИЯ: расстояние (${distanceFromCenter.toFixed(2)}) не равно радиусу (${r.toFixed(2)})! ` +
+          `Разница: ${distanceDiff.toFixed(2)}px`
+        )
+      }
+      
+      // Проверка изменения центра или радиуса
+      if (lastLoggedValues.cx !== undefined && lastLoggedValues.cx !== cx) {
+        console.warn(`[CHAT POSITION] ⚠️ ЦЕНТР ИЗМЕНИЛСЯ: cx ${lastLoggedValues.cx.toFixed(2)} → ${cx.toFixed(2)}`)
+      }
+      if (lastLoggedValues.cy !== undefined && lastLoggedValues.cy !== cy) {
+        console.warn(`[CHAT POSITION] ⚠️ ЦЕНТР ИЗМЕНИЛСЯ: cy ${lastLoggedValues.cy.toFixed(2)} → ${cy.toFixed(2)}`)
+      }
+      if (lastLoggedValues.r !== undefined && lastLoggedValues.r !== r) {
+        console.warn(`[CHAT POSITION] ⚠️ РАДИУС ИЗМЕНИЛСЯ: r ${lastLoggedValues.r.toFixed(2)} → ${r.toFixed(2)}`)
+      }
+      
+      lastLoggedValues = { cx, cy, r, thetaOffset: chatThetaOffset.value, timestamp: now }
+    }
+  }
+  
+  // Формула позиционирования в полярных координатах:
+  // x = cx + r * cos(θ)
+  // y = cy + r * sin(θ)
+  // ВАЖНО: cx, cy, r - константы, меняется только θ
+  const cosTheta = Math.cos(theta)
+  const sinTheta = Math.sin(theta)
+  const x = cx + r * cosTheta - CHAT_CIRCLE_SIZE / 2
+  const y = cy + r * sinTheta - CHAT_CIRCLE_SIZE / 2
   
   return {
     left: `${x}px`,
@@ -1967,6 +2114,9 @@ onMounted(async () => {
   spawnShipAboveWhatsApp()
   startPhysics()
   
+  // Add scroll listener for chat rotation
+  window.addEventListener('wheel', handleChatScroll, { passive: false })
+  
   // Try to restore saved sessions
   const whatsappRestored = await restoreWhatsAppSession()
   await restoreTelegramSession()
@@ -1983,6 +2133,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPhysics()
+  
+  // Remove scroll listener
+  window.removeEventListener('wheel', handleChatScroll)
   
   // Stop status polling
   stopStatusPolling()
@@ -3206,8 +3359,12 @@ onUnmounted(() => {
   z-index: 30;
   opacity: 0;
   transform: scale(0);
-  transition: opacity 0.3s ease-out, transform 0.3s ease-out, box-shadow 0.2s ease, z-index 0s, left 0.6s cubic-bezier(0.4, 0, 0.2, 1), top 0.6s cubic-bezier(0.4, 0, 0.2, 1), width 0.6s cubic-bezier(0.4, 0, 0.2, 1), height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  /* CRITICAL: No transition on left/top for scroll rotation - must update instantly */
+  /* Only transition opacity, transform (scale), and box-shadow for appearance animations */
+  transition: opacity 0.3s ease-out, transform 0.3s ease-out, box-shadow 0.2s ease, z-index 0s, width 0.6s cubic-bezier(0.4, 0, 0.2, 1), height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  /* Force instant position updates for scroll rotation */
+  will-change: left, top;
 }
 
 .chat-circle.chat-visible {
